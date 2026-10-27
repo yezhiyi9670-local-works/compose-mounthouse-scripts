@@ -98,11 +98,12 @@ class TmpfsMountSpec(TypedDict):
     tmpfs: TmpfsMountOptions
 
 
-MountSpec = Union[BindMountSpec, TmpfsMountSpec]
+MountSpec = Union[BindMountSpec, TmpfsMountSpec, str]  # In case we still need short syntax
 
 
 class ServiceMounts(TypedDict):
     volumes: list[MountSpec]
+    tmpfs: list[str]
 
 
 class ComposeData(TypedDict):
@@ -247,10 +248,10 @@ class API:
             )
         return host_path_exists(src_path)
 
-    def __get_service_mount_list(self, service: str) -> list[MountSpec]:
+    def __get_service_mounts(self, service: str) -> ServiceMounts:
         if service not in self.__services:
-            self.__services[service] = {'volumes': []}
-        return self.__services[service]['volumes']
+            self.__services[service] = {'volumes': [], 'tmpfs': []}
+        return self.__services[service]
 
     def bind(self, /, **kwargs: Unpack[ConfigKwargs]) -> None:
         with self.config(**kwargs):
@@ -298,7 +299,9 @@ class API:
             raise ValueError(
                 'Cannot create mount with destination path unspecified.'
             )
-        mount_list = self.__get_service_mount_list(service)
+        mounts = self.__get_service_mounts(service)
+        volume_list = mounts['volumes']
+        tmpfs_list = mounts['tmpfs']
         options = config['options']
 
         if kind == 'bind':
@@ -314,7 +317,7 @@ class API:
                     f'must_exist, but the source path does not exist.'
                 )
             src_path = apply_house_mapper(options['house_mapper'], src_path)
-            mount_list.append(BindMountSpec(
+            volume_list.append(BindMountSpec(
                 type='bind',
                 # Use abspath for source to be safe: relative paths mentioned in mounts.yml
                 # is relative to itself, not to where our mounthouse main.py is called from.
@@ -328,12 +331,24 @@ class API:
             tmpfs_size = options['tmpfs_size']
             if tmpfs_size is not None:
                 tmpfs_opts['size'] = tmpfs_size
-            mount_list.append(TmpfsMountSpec(
-                type='tmpfs',
-                target=dst_path.replace('$', '$$'),
-                read_only=options['read_only'],
-                tmpfs=tmpfs_opts
-            ))
+            if not options['read_only']:
+                volume_list.append(TmpfsMountSpec(
+                    type='tmpfs',
+                    target=dst_path.replace('$', '$$'),
+                    read_only=options['read_only'],
+                    tmpfs=tmpfs_opts
+                ))
+            else:
+                # Workaround of bug where long-syntax read_only tmpfs not recognized by Podman
+                if ':' in dst_path:
+                    raise ValueError(
+                        f'Short syntax dst path must not contain colon. '
+                        f'Offender: "{dst_path}"'
+                    )
+                tmpfs_list.append((
+                    f'{dst_path}:ro' +
+                    (f',size={str(tmpfs_size)}' if tmpfs_size != None else '')
+                ).replace('$', '$$'))
         else:  # pragma: no cover - unreachable given Literal
             raise ValueError(f'Unknown mount kind: {kind}')
 
