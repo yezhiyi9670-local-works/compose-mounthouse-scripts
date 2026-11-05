@@ -247,6 +247,16 @@ class API:
                 'Cannot check existence of unspecified source path.'
             )
         return host_path_exists(src_path)
+    def src_listdir(self, /, **kwargs: Unpack[SrcCheckKwargs]) -> list[str]:
+        with self.config(**kwargs):
+            return self.__src_listdir()
+    def __src_listdir(self) -> list[str]:
+        src_path = self.__get_src_path()
+        if src_path is None:
+            raise ValueError(
+                'Cannot check existence of unspecified source path.'
+            )
+        return os.listdir(src_path)
 
     def __get_service_mounts(self, service: str) -> ServiceMounts:
         if service not in self.__services:
