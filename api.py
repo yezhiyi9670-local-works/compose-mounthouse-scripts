@@ -341,24 +341,17 @@ class API:
             tmpfs_size = options['tmpfs_size']
             if tmpfs_size is not None:
                 tmpfs_opts['size'] = tmpfs_size
-            if not options['read_only']:
-                volume_list.append(TmpfsMountSpec(
-                    type='tmpfs',
-                    target=dst_path.replace('$', '$$'),
-                    read_only=options['read_only'],
-                    tmpfs=tmpfs_opts
-                ))
-            else:
-                # Workaround of bug where long-syntax read_only tmpfs not recognized by Podman
-                if ':' in dst_path:
-                    raise ValueError(
-                        f'Short syntax dst path must not contain colon. '
-                        f'Offender: "{dst_path}"'
-                    )
-                tmpfs_list.append((
-                    f'{dst_path}:ro' +
-                    (f',size={str(tmpfs_size)}' if tmpfs_size != None else '')
-                ).replace('$', '$$'))
+            # Workaround of bug where long-syntax read_only tmpfs does not exhibit
+            # normal behavior in Podman (always appears writable, and has 000 mode so unusable by Agent).
+            if ':' in dst_path:
+                raise ValueError(
+                    f'Short syntax dst path must not contain colon. '
+                    f'Offender: "{dst_path}"'
+                )
+            tmpfs_list.append((
+                f'{dst_path}:' + ('ro' if options['read_only'] else 'rw') +
+                (f',size={str(tmpfs_size)}' if tmpfs_size != None else '')
+            ).replace('$', '$$'))
         else:  # pragma: no cover - unreachable given Literal
             raise ValueError(f'Unknown mount kind: {kind}')
 
